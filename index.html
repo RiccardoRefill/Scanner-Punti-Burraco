@@ -3,245 +3,150 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Burraco Counter – Auto (Robust Detect + TM + OCR)</title>
-<script async src="https://docs.opencv.org/4.8.0/opencv.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<title>Riconoscimento Carta – Demo Semplice</title>
+<!-- Solo OpenCV.js, niente OCR esterno -->
+<script src="https://docs.opencv.org/4.8.0/opencv.js"></script>
 <style>
-  :root{ --bg:#0b1a13; --line:#183528; --muted:#97b3a5; --accent:#2dd4bf; }
+  :root{ --bg:#0b1a13; --line:#183528; --muted:#97b3a5; --accent:#2dd4bf }
   html,body{margin:0;height:100%}
-  body{font-family:system-ui,Segoe UI,Roboto,Arial; background:linear-gradient(180deg,#05210f,#0b1a13); color:#e7f4ee}
-  .wrap{max-width:1100px;margin:0 auto;padding:16px 16px 120px}
-  header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
-  h1{font-size:22px;margin:0;font-weight:800}
-  .btn{border:1px solid var(--line);background:#0f3023;color:#eafff7;border-radius:12px;padding:10px 14px;cursor:pointer;font-weight:600}
-  .btn.secondary{background:#10261d}
-  .btn.ghost{background:transparent}
-  .stat{display:flex;align-items:center;gap:8px;border:1px dashed var(--line);border-radius:12px;padding:10px 12px;background:#0c2218}
-  .stat .k{color:var(--muted);font-weight:600}
-  .stat .v{font-weight:900;font-size:18px}
-  .footer{position:fixed;left:0;right:0;bottom:0;background:rgba(5,18,13,.85);backdrop-filter:saturate(120%) blur(6px);border-top:1px solid var(--line)}
-  .footer .inner{max-width:1100px;margin:0 auto;padding:12px 16px}
-  .imgbox{display:grid;grid-template-columns:1fr 380px;gap:12px;border:1px solid var(--line);border-radius:16px;overflow:hidden;min-height:220px;background:#0e2119}
-  canvas{max-width:100%;height:auto;background:#0d2018}
-  .small{font-size:12px;color:var(--muted)}
-  .row{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--line);background:#0e2018;border-radius:10px;padding:6px 10px;margin-bottom:6px}
-  .tag{display:inline-block;border:1px solid var(--line);padding:3px 8px;border-radius:999px;background:#0c2018;margin:2px}
-  .progress{height:6px;background:#0a1c14;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
-  .progress>div{height:100%;background:var(--accent);width:0%}
-  @media (max-width:1000px){.imgbox{grid-template-columns:1fr}}
+  body{font-family:system-ui,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#05210f,#0b1a13);color:#e7f4ee}
+  .wrap{max-width:900px;margin:0 auto;padding:16px 16px 80px}
+  h1{font-size:20px;margin:0 0 10px;font-weight:800}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .btn{border:1px solid var(--line);background:#0f3023;color:#eafff7;border-radius:12px;padding:10px 14px;cursor:pointer;font-weight:700}
+  .card{display:grid;grid-template-columns:1fr 280px;gap:12px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#0e2119}
+  canvas{width:100%;height:auto;background:#0d2018}
+  .panel{padding:12px}
+  .stat{border:1px dashed var(--line);border-radius:12px;padding:10px 12px;background:#0c2218;margin-bottom:8px}
+  .muted{color:var(--muted);font-size:12px}
+  .big{font-size:26px;font-weight:900}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  @media (max-width:840px){.card{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <h1>Burraco Counter – Riconoscimento automatico</h1>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <label class="btn" for="pick">Scatta/Carica foto</label>
-        <input id="pick" type="file" accept="image/*" capture="environment" hidden>
-        <button id="analyzeBtn" class="btn">Riconosci punteggi</button>
-        <button id="preciseBtn" class="btn secondary">Modalità precisa</button>
-        <button id="rulesBtn" class="btn secondary">Regole</button>
-        <button id="resetBtn" class="btn ghost">Pulisci</button>
-      </div>
-    </header>
-
-    <div class="imgbox">
-      <div class="panel" style="padding:12px">
-        <div class="small" style="margin-bottom:8px">Scatta dall’alto, luce uniforme. Carte a tavola <b>verticali</b>, da pagare <b>orizzontali</b>.</div>
-        <canvas id="canvas"></canvas>
-      </div>
-      <div class="panel" style="padding:12px;border-left:1px solid var(--line)">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-          <strong>Stato</strong>
-          <div class="progress" style="flex:1"><div id="progress"></div></div>
-        </div>
-        <div id="status" class="small" style="margin:6px 0 10px">Pronto</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-          <div class="stat"><span class="k">Carte a tavola</span><span class="v" id="stat-pos">0</span></div>
-          <div class="stat"><span class="k">Carte da pagare</span><span class="v" id="stat-neg">0</span></div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-          <div class="stat"><span class="k">Bonus totali</span><span class="v" id="stat-bonus">0</span></div>
-          <div class="stat"><span class="k">TOTALE</span><span class="v" id="stat-total">0</span></div>
-        </div>
-        <div style="margin:8px 0"><strong>Dettaglio carte</strong> <span class="small">(tocca una riga per correggere)</span></div>
-        <div id="detail" class="small" style="max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px"></div>
-        <div style="margin-top:10px">
-          <span class="tag">Burraco Puri: <span id="bp">0</span></span>
-          <span class="tag">Semipuri: <span id="bs">0</span></span>
-          <span class="tag">Impuri: <span id="bi">0</span></span>
-        </div>
-        <div style="margin-top:6px">
-          <label><input type="checkbox" id="chiusura"> Chiusura</label>
-          <label style="margin-left:10px"><input type="checkbox" id="pozzetto"> Pozzetto NON preso</label>
-        </div>
-      </div>
-    </div>
+<div class="wrap">
+  <h1>Riconoscimento di <span class="mono">una</span> carta da gioco</h1>
+  <div class="row">
+    <label class="btn" for="file">Scatta/Carica foto</label>
+    <input id="file" type="file" accept="image/*" capture="environment" hidden>
+    <button id="go" class="btn">Riconosci carta</button>
+    <button id="reset" class="btn" style="background:#10261d">Pulisci</button>
   </div>
 
-  <div class="footer">
-    <div class="inner" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <div class="stat"><span class="k">Carte a tavola</span> <span class="v" id="f-pos">0</span></div>
-        <div class="stat"><span class="k">Carte da pagare</span> <span class="v" id="f-neg">0</span></div>
-        <div class="stat"><span class="k">Bonus totali</span> <span class="v" id="f-bonus">0</span></div>
+  <div class="card" style="margin-top:12px">
+    <div class="panel">
+      <div class="muted" style="margin-bottom:6px">Suggerimento: inquadra <b>una sola carta</b>, dall'alto, con luce uniforme.</div>
+      <canvas id="canvas"></canvas>
+    </div>
+    <div class="panel" style="border-left:1px solid var(--line)">
+      <div class="stat">
+        <div class="muted">Stato</div>
+        <div id="status">Pronto</div>
       </div>
-      <div class="result"><span class="k" style="margin-right:10px">TOTALE</span> <span class="total" id="f-total">0</span></div>
+      <div class="stat">
+        <div class="muted">Risultato</div>
+        <div class="big"><span id="rank">—</span> <span id="suit"></span></div>
+      </div>
+      <div class="muted">Se il riconoscimento è impreciso, avvicina la carta e riprova.</div>
     </div>
   </div>
-
-  <!-- Dialog Regole -->
-  <dialog id="rulesDlg" style="border:none;border-radius:16px;padding:0;max-width:520px;width:92%">
-    <form method="dialog" style="background:#0b1a13;color:#e7f4ee;border:1px solid var(--line);border-radius:16px;overflow:hidden">
-      <div style="padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center"><strong>Regole & Bonus</strong><button class="btn secondary" value="close">Chiudi</button></div>
-      <div style="padding:14px;display:grid;gap:10px">
-        <div class="small">Valori carte (classico ITA): 3–7=5, 8–K=10, A=15, 2=20, Jolly=30.</div>
-        <label>Bonus Burraco Puro <input type="number" id="r-puro" /></label>
-        <label>Bonus Burraco Semipuro <input type="number" id="r-semi" /></label>
-        <label>Bonus Burraco Impuro <input type="number" id="r-imp" /></label>
-        <label>Bonus Chiusura <input type="number" id="r-chius" /></label>
-        <label>Penalità Pozzetto non preso <input type="number" id="r-pozz" /></label>
-      </div>
-      <div style="padding:14px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px"><button class="btn secondary" value="cancel">Annulla</button><button class="btn" id="saveRules" value="default">Salva</button></div>
-    </form>
-  </dialog>
+</div>
 
 <script>
-/* Utils */
-const sleep = ms=>new Promise(r=>setTimeout(r,ms));
-const setText = (id,v)=>document.getElementById(id).textContent=String(v);
-const setStatus = t=>document.getElementById('status').textContent=t;
-const setProg = p=>document.getElementById('progress').style.width = Math.max(0,Math.min(100,p))+'%';
-/* Domain */
-const SHOW_ORDER = ["Jolly","2","A","K","Q","J","10","9","8","7","6","5","4","3"];
-const CARD_VALUES = {"3":5,"4":5,"5":5,"6":5,"7":5,"8":10,"9":10,"10":10,"J":10,"Q":10,"K":10,"A":15,"2":20,"Jolly":30};
-const rulesDefaults = { puro:200, semi:150, imp:100, chius:100, pozz:-100 };
-let rules = JSON.parse(localStorage.getItem('rules-burraco')||'null') || rulesDefaults;
-/* State */
-const state = {
-  laid: Object.fromEntries(SHOW_ORDER.map(r=>[r,0])),
-  pay:  Object.fromEntries(SHOW_ORDER.map(r=>[r,0])),
-  bp:0, bs:0, bi:0, chius:false, pozz:false,
-  detail: [], precise:false,
-};
-/* Scoring */
-function sum(bag){ return Object.entries(bag).reduce((a,[rank,c])=> a + (CARD_VALUES[rank]||0)*c, 0); }
-function bonus(){ let b = state.bp*rules.puro + state.bs*rules.semi + state.bi*rules.imp; if(state.chius) b+=rules.chius; if(state.pozz) b+=rules.pozz; return b; }
-function recalc(){ const pos=sum(state.laid), neg=sum(state.pay), bon=bonus(), tot=pos-neg+bon;
-  setText('stat-pos',pos); setText('stat-neg',neg); setText('stat-bonus',bon); setText('stat-total',tot);
-  setText('f-pos',pos); setText('f-neg',neg); setText('f-bonus',bon); setText('f-total',tot); }
-/* UI */
-const dlg=document.getElementById('rulesDlg');
-document.getElementById('rulesBtn').addEventListener('click',()=>{ r_puro.value=rules.puro; r_semi.value=rules.semi; r_imp.value=rules.imp; r_chius.value=rules.chius; r_pozz.value=rules.pozz; dlg.showModal(); });
-document.getElementById('saveRules').addEventListener('click',()=>{ rules={puro:+r_puro.value||0,semi:+r_semi.value||0,imp:+r_imp.value||0,chius:+r_chius.value||0,pozz:+r_pozz.value||0}; localStorage.setItem('rules-burraco',JSON.stringify(rules)); recalc();});
-document.getElementById('chiusura').addEventListener('change',e=>{state.chius=e.target.checked;recalc();});
-document.getElementById('pozzetto').addEventListener('change',e=>{state.pozz=e.target.checked;recalc();});
-['bp','bs','bi'].forEach(id=>document.getElementById(id).addEventListener('click',()=>{state[id]=(state[id]+1)%10;setText(id,state[id]);recalc();}));
-/* Canvas */
-const input=document.getElementById('pick'); const canvas=document.getElementById('canvas'); const ctx=canvas.getContext('2d',{willReadFrequently:true}); let imgBitmap=null;
-input.addEventListener('change',async()=>{const f=input.files&&input.files[0]; if(!f) return; const b=await createImageBitmap(f,{imageOrientation:'from-image'}); const maxW=1400, s=Math.min(1,maxW/b.width); canvas.width=Math.round(b.width*s); canvas.height=Math.round(b.height*s); ctx.drawImage(b,0,0,canvas.width,canvas.height); imgBitmap=b; setStatus('Immagine caricata. Pronto al riconoscimento.'); setProg(0);});
-document.getElementById('resetBtn').addEventListener('click',()=>{ctx.clearRect(0,0,canvas.width,canvas.height); state.detail=[]; Object.keys(state.laid).forEach(k=>state.laid[k]=0); Object.keys(state.pay).forEach(k=>state.pay[k]=0); updateDetail(); recalc(); setStatus('Pronto'); setProg(0);});
-document.getElementById('preciseBtn').addEventListener('click',()=>{state.precise=!state.precise; document.getElementById('preciseBtn').textContent=state.precise?'Modalità precisa ✓':'Modalità precisa';});
-/* Detail list */
-function updateDetail(){ const d=document.getElementById('detail'); d.innerHTML=''; if(!state.detail.length){ d.innerHTML='<div class=small>Nessuna carta riconosciuta (ancora)</div>'; return; } state.detail.forEach((c,i)=>{ const row=document.createElement('div'); row.className='row'; row.style.cursor='pointer'; row.innerHTML=`<span>#${i+1} – ${c.rank||'?'} <span class=small>(${c.orientation==='vertical'?'tavola':'pagare'})</span> <span class=small>[conf ${c.conf?.toFixed(2)??'-'}]</span></span><span>${CARD_VALUES[c.rank]||0} pt</span>`; row.addEventListener('click',()=>editCard(i)); d.appendChild(row); });}
-function editCard(i){ const c=state.detail[i]; const arr=SHOW_ORDER; const j=Math.max(0,arr.indexOf(c.rank)); c.rank=arr[(j+1)%arr.length]; c.orientation=c.orientation==='vertical'?'horizontal':'vertical'; applyTalliesFromDetail(); updateDetail(); recalc();}
-function applyTalliesFromDetail(){ Object.keys(state.laid).forEach(k=>state.laid[k]=0); Object.keys(state.pay).forEach(k=>state.pay[k]=0); state.detail.forEach(c=>{ if(!c.rank) return; if(c.orientation==='vertical') state.laid[c.rank]++; else state.pay[c.rank]++; }); }
-/* OpenCV helpers */
-const cvReady = ()=>new Promise(async r=>{ while(typeof cv==='undefined'||!cv.Mat){ await sleep(50);} r(); });
-function toGray(mat){ const g=new cv.Mat(); if(mat.type()===cv.CV_8UC1){ mat.copyTo(g);} else { cv.cvtColor(mat,g,cv.COLOR_RGBA2GRAY);} return g; }
-function morphClose(src, k=3, it=1){ const kernel=cv.Mat.ones(k,k,cv.CV_8U); const dst=new cv.Mat(); cv.morphologyEx(src,dst,cv.MORPH_CLOSE,kernel,new cv.Point(-1,-1),it); kernel.delete(); return dst; }
-function rectToQuad(rect){ const cx=rect.center.x, cy=rect.center.y, w=rect.size.width, h=rect.size.height, ang=rect.angle*Math.PI/180; const b=Math.cos(ang), a=Math.sin(ang); const dx=[-w/2, w/2, w/2,-w/2]; const dy=[-h/2,-h/2, h/2, h/2]; const quad=[]; for(let i=0;i<4;i++){ quad.push({x: cx + dx[i]*b - dy[i]*a, y: cy + dx[i]*a + dy[i]*b}); } return quad; }
-function warpByQuad(src, quad, W=300, H=420){ const dsize=new cv.Size(W,H); const srcTri=cv.matFromArray(4,1,cv.CV_32FC2,new Float32Array([quad[0].x,quad[0].y, quad[1].x,quad[1].y, quad[2].x,quad[2].y, quad[3].x,quad[3].y])); const dstTri=cv.matFromArray(4,1,cv.CV_32FC2,new Float32Array([0,0, W,0, W,H, 0,H])); const M=cv.getPerspectiveTransform(srcTri,dstTri); const dst=new cv.Mat(); cv.warpPerspective(src,dst,M,dsize,cv.INTER_LINEAR,cv.BORDER_REPLICATE); srcTri.delete(); dstTri.delete(); M.delete(); return dst; }
-/* Templates + OCR fallback */
-const TEMPLATE_W=60, TEMPLATE_H=80; let templates=null;
-function buildTemplates(){ if(templates) return templates; templates={}; const labels=["A","K","Q","J","10","9","8","7","6","5","4","3","2","JOLLY"]; labels.forEach(lbl=>{ const off=document.createElement('canvas'); off.width=TEMPLATE_W; off.height=TEMPLATE_H; const ictx=off.getContext('2d'); ictx.fillStyle='#fff'; ictx.fillRect(0,0,off.width,off.height); ictx.fillStyle='#000'; const fontMain=(lbl.length>2?28:(lbl==='10'?36:40)); ictx.font=`bold ${fontMain}px system-ui, Arial, Helvetica, sans-serif`; ictx.textAlign='left'; ictx.textBaseline='top'; ictx.fillText(lbl,6,4); const img=ictx.getImageData(0,0,off.width,off.height); let mat=cv.matFromImageData(img); let g=toGray(mat); mat.delete(); let b=new cv.Mat(); cv.threshold(g,b,0,255,cv.THRESH_BINARY+cv.THRESH_OTSU); g.delete(); templates[lbl]=b; }); return templates; }
-function toRGBA(mat){ let rgba=new cv.Mat(); if(mat.type()===cv.CV_8UC4){ rgba=mat.clone(); } else if(mat.type()===cv.CV_8UC3){ cv.cvtColor(mat,rgba,cv.COLOR_RGB2RGBA);} else if(mat.type()===cv.CV_8UC1){ cv.cvtColor(mat,rgba,cv.COLOR_GRAY2RGBA);} else { cv.cvtColor(mat,rgba,cv.COLOR_RGBA2RGBA);} return rgba; }
-function matToImageData(mat){ const rgba=toRGBA(mat); const img=new ImageData(new Uint8ClampedArray(rgba.data), rgba.cols, rgba.rows); rgba.delete(); return img; }
-let tessWorker=null;
-async function getWorker(){ if(!tessWorker){ tessWorker=await Tesseract.createWorker('eng',1,{logger:m=>{ if(m.status) setStatus(m.status); if(m.progress) setProg(Math.round((m.progress||0)*100)); }, langPath:'https://tessdata.projectnaptha.com/4.0.0_best'}); await tessWorker.setParameters({ tessedit_char_whitelist:'A K Q J 10 9 8 7 6 5 4 3 2 JOLLY' }); } return tessWorker; }
-function enhanceForOCR(gray){ const big=new cv.Mat(); cv.resize(gray,big,new cv.Size(0,0),2.0,2.0,cv.INTER_CUBIC); const blur=new cv.Mat(); cv.GaussianBlur(big,blur,new cv.Size(3,3),0); const sharp=new cv.Mat(); cv.addWeighted(big,1.5,blur,-0.5,0,sharp); big.delete(); blur.delete(); return sharp; }
-function mapTextToRank(text){ const t=text.toUpperCase().replace(/[^A-Z0-9]/g,''); if(!t) return null; if(t.includes('JOLLY')) return 'Jolly'; if(t==='A'||t==='K'||t==='Q'||t==='J') return t; if(t==='10'||t==='T') return '10'; if(/^[2-9]$/.test(t)) return t; return null; }
-async function ocrRank(corner){ const g=toGray(corner); const sh=enhanceForOCR(g); const th=new cv.Mat(); cv.threshold(sh,th,0,255,cv.THRESH_BINARY+cv.THRESH_OTSU); const w=await getWorker(); const {data:{text}}=await w.recognize(matToImageData(th)); let rank=mapTextToRank(text||''); if(!rank){ const th2=new cv.Mat(); cv.adaptiveThreshold(sh,th2,255,cv.ADAPTIVE_THRESH_GAUSSIAN_C,cv.THRESH_BINARY,11,2); const {data:{text:t2}}=await w.recognize(matToImageData(th2)); rank=mapTextToRank(t2||''); th2.delete(); } g.delete(); sh.delete(); th.delete(); return rank; }
-/* Rank from corner by template, with OCR fallback */
-async function rankFromCorner(corner, precise){ // returns {rank, conf}
-  const g=toGray(corner); const sharp=new cv.Mat(); cv.GaussianBlur(g,sharp,new cv.Size(3,3),0); const un=new cv.Mat(); cv.addWeighted(g,1.6,sharp,-0.6,0,un); g.delete(); sharp.delete();
-  const bin=new cv.Mat(); cv.threshold(un,bin,0,255,cv.THRESH_BINARY+cv.THRESH_OTSU); un.delete();
-  const roi=new cv.Mat(); cv.resize(bin,roi,new cv.Size(TEMPLATE_W,TEMPLATE_H),0,0,cv.INTER_AREA); bin.delete();
-  const tpls=buildTemplates(); let best={label:null, score:-1};
-  for(const [label,tpl] of Object.entries(tpls)){ const result=new cv.Mat(); cv.matchTemplate(roi,tpl,result,cv.TM_CCOEFF_NORMED); const mm=cv.minMaxLoc(result); if(mm.maxVal>best.score) best={label, score:mm.maxVal}; result.delete(); }
-  roi.delete();
-  const thr=precise?0.50:0.60;
-  if(best.score>=thr) return {rank: best.label==='JOLLY'?'Jolly':best.label, conf:best.score};
-  // fallback OCR
-  const rank = await ocrRank(corner);
-  return {rank, conf: rank? 0.58 : 0};
-}
-/* Detect cards from binary mask via contours + minAreaRect */
-function detectCardsFromMask(mask){ const contours=new cv.MatVector(); const hierarchy=new cv.Mat(); cv.findContours(mask,contours,hierarchy,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE); const items=[]; for(let i=0;i<contours.size();i++){ const cnt=contours.get(i); const area=cv.contourArea(cnt); if(area< (state.precise? 2000:3500)) { cnt.delete(); continue; } const rect=cv.minAreaRect(cnt); const w=rect.size.width, h=rect.size.height; if(w<20||h<20){ cnt.delete(); continue; } const aspect=Math.min(w,h)/Math.max(w,h); if(aspect<0.55||aspect>0.80){ cnt.delete(); continue; } const fill = area/(w*h); if(fill<0.55||fill>0.98){ cnt.delete(); continue; } const quad=rectToQuad(rect); items.push({rect, quad}); cnt.delete(); } hierarchy.delete(); contours.delete(); return items; }
-/* Main analyze */
-async function analyze(){
-  if(!imgBitmap){ setStatus('Carica una foto prima'); return; }
-  setStatus('Caricamento OpenCV…'); setProg(2);
-  await cvReady();
+const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+const setStatus = (t)=>document.getElementById('status').textContent=t;
+const setRank  = (t)=>document.getElementById('rank').textContent=t;
+const setSuit  = (t)=>document.getElementById('suit').textContent=t;
 
-  setStatus('Preprocessing…'); setProg(5);
-  const src = cv.imread(canvas);
-  const gray = toGray(src);
-  // binarizzazione per tavolo scuro / carte chiare
-  const th = new cv.Mat(); cv.threshold(gray, th, 0, 255, cv.THRESH_BINARY+cv.THRESH_OTSU);
-  const closed = morphClose(th, state.precise? 5:3, state.precise? 2:1); th.delete();
-  const cards = detectCardsFromMask(closed); closed.delete(); gray.delete();
+// UI refs
+const file = document.getElementById('file');
+const go   = document.getElementById('go');
+const reset= document.getElementById('reset');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d',{willReadFrequently:true});
+let imgBitmap = null;
 
-  setStatus(`Carte candidate trovate: ${cards.length}`); setProg(25);
-
-  const results=[];
-  for(let i=0;i<cards.length;i++){
-    const {rect, quad} = cards[i];
-    const W=300,H=420; const warped = warpByQuad(src, quad, W, H);
-    const tl = warped.roi(new cv.Rect(0,0, Math.floor(W*0.33), Math.floor(H*0.32)));
-    const br = warped.roi(new cv.Rect(Math.floor(W*0.67), Math.floor(H*0.68), Math.floor(W*0.33), Math.floor(H*0.32)));
-    const m1 = await rankFromCorner(tl, state.precise);
-    const m2 = await rankFromCorner(br, state.precise);
-    const best = (m1.conf>=m2.conf)? m1 : m2;
-    const orientation = (rect.size.height>=rect.size.width)? 'vertical' : 'horizontal';
-    const xs = quad.map(p=>p.x), ys=quad.map(p=>p.y); const x=Math.min(...xs), y=Math.min(...ys); const w=Math.max(...xs)-x, h=Math.max(...ys)-y;
-    results.push({x,y,w,h, rank: best.rank||null, conf: best.conf, orientation});
-    warped.delete(); tl.delete(); br.delete();
-    setStatus(`Analisi carte… ${i+1}/${cards.length}`); setProg(25 + Math.round((i+1)/cards.length*70));
-  }
-
-  // tallies
-  Object.keys(state.laid).forEach(k=>state.laid[k]=0);
-  Object.keys(state.pay).forEach(k=>state.pay[k]=0);
-  state.detail=[];
-  for(const r of results){
-    if(!r.rank) continue;
-    if(r.orientation==='vertical') state.laid[r.rank]++; else state.pay[r.rank]++;
-    state.detail.push({rank:r.rank, orientation:r.orientation, conf:r.conf});
-  }
-
-  // draw
-  ctx.drawImage(imgBitmap,0,0,canvas.width,canvas.height);
-  ctx.lineWidth = 2; ctx.font='12px system-ui';
-  for(const b of results){
-    ctx.strokeStyle = b.orientation==='vertical'? '#34d399' : '#fbbf24';
-    ctx.strokeRect(b.x,b.y,b.w,b.h);
-    const label = `${b.rank||'?'} ${b.orientation==='vertical'?'V':'H'} (${b.conf?b.conf.toFixed(2):'-'})`;
-    const tw = ctx.measureText(label).width;
-    ctx.fillStyle='#000c'; ctx.fillRect(b.x,b.y-16,tw+8,16);
-    ctx.fillStyle='#fff'; ctx.fillText(label,b.x+4,b.y-4);
-  }
-
-  updateDetail(); recalc(); setStatus('Completato'); setProg(100);
-  src.delete();
-}
-
-document.getElementById('analyzeBtn').addEventListener('click', ()=>{
-  analyze().catch(err=>{ console.error(err); setStatus('Errore: '+err.message); setProg(0); });
+file.addEventListener('change', async ()=>{
+  const f = file.files && file.files[0]; if(!f) return;
+  const bitmap = await createImageBitmap(f, { imageOrientation: 'from-image' });
+  const maxW = 1200, s = Math.min(1, maxW/bitmap.width);
+  canvas.width = Math.round(bitmap.width*s); canvas.height = Math.round(bitmap.height*s);
+  ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
+  imgBitmap = bitmap; setStatus('Immagine caricata.'); setRank('—'); setSuit('');
 });
 
-/* Init */
-recalc(); setStatus('Pronto');
+reset.addEventListener('click',()=>{ ctx.clearRect(0,0,canvas.width,canvas.height); imgBitmap=null; setStatus('Pronto'); setRank('—'); setSuit(''); });
+
+// ====== OpenCV helpers ======
+const cvReady = ()=>new Promise(async resolve=>{ while(typeof cv==='undefined' || !cv.Mat){ await sleep(50); } if(!cv.getBuildInformation){ await sleep(200); } resolve(); });
+function toGray(mat){ const g=new cv.Mat(); if(mat.type()===cv.CV_8UC1){ mat.copyTo(g); } else { cv.cvtColor(mat,g,cv.COLOR_RGBA2GRAY); } return g; }
+function thresholdOtsu(gray){ const th=new cv.Mat(); cv.threshold(gray,th,0,255,cv.THRESH_BINARY+cv.THRESH_OTSU); return th; }
+function morphClose(src,k=3,it=1){ const kernel=cv.Mat.ones(k,k,cv.CV_8U); const dst=new cv.Mat(); cv.morphologyEx(src,dst,cv.MORPH_CLOSE,kernel,new cv.Point(-1,-1),it); kernel.delete(); return dst; }
+function rectToQuad(rect){ const cx=rect.center.x, cy=rect.center.y, w=rect.size.width, h=rect.size.height, ang=rect.angle*Math.PI/180; const b=Math.cos(ang), a=Math.sin(ang); const dx=[-w/2,w/2,w/2,-w/2]; const dy=[-h/2,-h/2,h/2,h/2]; const q=[]; for(let i=0;i<4;i++){ q.push({x:cx+dx[i]*b - dy[i]*a, y:cy+dx[i]*a + dy[i]*b}); } return q; }
+function warp(src, quad, W=300, H=420){ const s=cv.matFromArray(4,1,cv.CV_32FC2,new Float32Array([quad[0].x,quad[0].y, quad[1].x,quad[1].y, quad[2].x,quad[2].y, quad[3].x,quad[3].y])); const d=cv.matFromArray(4,1,cv.CV_32FC2,new Float32Array([0,0, W,0, W,H, 0,H])); const M=cv.getPerspectiveTransform(s,d); const out=new cv.Mat(); cv.warpPerspective(src,out,M,new cv.Size(W,H),cv.INTER_LINEAR,cv.BORDER_REPLICATE); s.delete(); d.delete(); M.delete(); return out; }
+
+// ====== Synthetic templates (rank + suit) ======
+const TW=64, TH=84; let templates=null, suitTpl=null;
+function buildTemplates(){ if(templates && suitTpl) return; templates={}; suitTpl={};
+  const ranks=["A","K","Q","J","10","9","8","7","6","5","4","3","2"]; const suits=["♠","♥","♦","♣"];
+  // rank templates (black)
+  ranks.forEach(lbl=>{ const c=document.createElement('canvas'); c.width=TW; c.height=TH; const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height); g.fillStyle='#000'; const f= (lbl=="10"? 40 : 48); g.font=`900 ${f}px system-ui,Arial`; g.textAlign='left'; g.textBaseline='top'; g.fillText(lbl,6,4); const img=g.getImageData(0,0,TW,TH); let m=cv.matFromImageData(img); let gray=toGray(m); m.delete(); let b=thresholdOtsu(gray); gray.delete(); templates[lbl]=b; });
+  // suit templates using font glyphs (two colors)
+  suits.forEach(lbl=>{ const c=document.createElement('canvas'); c.width=TW; c.height=TH; const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height); g.fillStyle=(lbl==='♥'||lbl==='♦')?'#f00':'#000'; g.font=`900 52px system-ui,Arial`; g.textAlign='left'; g.textBaseline='top'; g.fillText(lbl,6,8); const img=g.getImageData(0,0,TW,TH); let m=cv.matFromImageData(img); let gray=toGray(m); m.delete(); let b=thresholdOtsu(gray); gray.delete(); suitTpl[lbl]=b; });
+}
+
+function matchTemplate(roi, tpls){ // returns {label, score}
+  let gray=toGray(roi); let bin=thresholdOtsu(gray); gray.delete(); const scaled=new cv.Mat(); cv.resize(bin, scaled, new cv.Size(TW,TH),0,0,cv.INTER_AREA); bin.delete();
+  let best={label:null, score:-1}; for(const [label,t] of Object.entries(tpls)){ const res=new cv.Mat(); cv.matchTemplate(scaled,t,res,cv.TM_CCOEFF_NORMED); const mm=cv.minMaxLoc(res); if(mm.maxVal>best.score) best={label, score:mm.maxVal}; res.delete(); }
+  scaled.delete(); return best;
+}
+
+async function recognizeOne(){
+  if(!imgBitmap){ setStatus('Carica una foto prima'); return; }
+  setStatus('Carico OpenCV…'); await cvReady(); buildTemplates();
+
+  setStatus('Preprocessing…');
+  const src = cv.imread(canvas);
+  // 1) Segmentazione per trovare la carta più grande
+  const gray = toGray(src); const th = thresholdOtsu(gray); gray.delete();
+  const closed = morphClose(th, 5, 2); th.delete();
+  const contours=new cv.MatVector(), hier=new cv.Mat();
+  cv.findContours(closed,contours,hier,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE); closed.delete(); hier.delete();
+  let bestRect=null, bestArea=0, bestQuad=null;
+  for(let i=0;i<contours.size();i++){ const cnt=contours.get(i); const rect=cv.minAreaRect(cnt); const area=rect.size.width*rect.size.height; const ar=Math.min(rect.size.width,rect.size.height)/Math.max(rect.size.width,rect.size.height); if(area>bestArea && area>6000 && ar>0.55 && ar<0.80){ bestArea=area; bestRect=rect; bestQuad=rectToQuad(rect); } cnt.delete(); }
+  contours.delete();
+  if(!bestQuad){ setStatus('Nessuna carta rilevata. Avvicina la carta e riprova.'); src.delete(); return; }
+
+  // 2) Normalizza la carta
+  const W=300,H=420; const warped = warp(src, bestQuad, W, H); src.delete();
+
+  // 3) Ritaglia l'angolo in alto a sinistra
+  const corner = warped.roi(new cv.Rect(0,0, Math.floor(W*0.35), Math.floor(H*0.35)));
+
+  // 4) Rank & suit via template matching
+  const rank = matchTemplate(corner, templates); // es. {label:"A", score:0.8}
+  const suit = matchTemplate(corner, suitTpl);  // es. {label:"♥", score:0.7}
+
+  // 5) Mostra risultato
+  const rOK = rank.score >= 0.55; // soglie blande per demo
+  const sOK = suit.score >= 0.55;
+  setRank(rOK? rank.label : ' ? ');
+  setSuit(sOK? suit.label : '');
+  setStatus(`OK – conf rank ${rank.score.toFixed(2)} / suit ${suit.score.toFixed(2)}`);
+
+  // 6) Disegna il rettangolo trovato
+  const dctx = canvas.getContext('2d');
+  dctx.drawImage(imgBitmap,0,0,canvas.width,canvas.height);
+  const xs=bestQuad.map(p=>p.x), ys=bestQuad.map(p=>p.y);
+  dctx.strokeStyle='#2dd4bf'; dctx.lineWidth=3; dctx.strokeRect(Math.min(...xs),Math.min(...ys), Math.max(...xs)-Math.min(...xs), Math.max(...ys)-Math.min(...ys));
+
+  corner.delete(); warped.delete();
+}
+
+go.addEventListener('click', ()=>{
+  recognizeOne().catch(e=>{ console.error(e); setStatus('Errore: '+(e?.message||e)); });
+});
 </script>
 </body>
 </html>
