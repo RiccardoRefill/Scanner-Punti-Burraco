@@ -1,4 +1,5 @@
-<!doctype html>
+# Recreate the improved index.html file and save it for download
+html = r"""<!doctype html>
 <html lang="it">
 <head>
 <meta charset="utf-8" />
@@ -223,12 +224,20 @@ function updateDetail(){
   }
 }
 
-// OCR helper
+// OCR helper (worker riutilizzabile)
 const TESS_CONFIG = { 
   logger: m=>{ if(m.status) setStatus(m.status); if(m.progress) setProg(Math.round((m.progress||0)*100)); },
-  langPath: 'https://tessdata.projectnaptha.com/4.0.0_best', // CDN best models
+  langPath: 'https://tessdata.projectnaptha.com/4.0.0_best',
 };
 const OCR_WHITELIST = 'A K Q J 10 9 8 7 6 5 4 3 2 JOLLY';
+let tessWorker = null;
+async function getWorker(){
+  if(!tessWorker){
+    tessWorker = await Tesseract.createWorker('eng', 1, TESS_CONFIG);
+    await tessWorker.setParameters({ tessedit_char_whitelist: OCR_WHITELIST });
+  }
+  return tessWorker;
+}
 
 function mapTextToRank(text){
   if(!text) return null;
@@ -243,13 +252,60 @@ function mapTextToRank(text){
   return null;
 }
 
-async function ocrRank(imageData){
-  // use Tesseract on a corner crop
-  const worker = await Tesseract.createWorker('eng', 1, TESS_CONFIG);
-  await worker.setParameters({ tessedit_char_whitelist: OCR_WHITELIST });
-  const { data: { text } } = await worker.recognize(imageData);
-  await worker.terminate();
-  return mapTextToRank(text.trim());
+function toRGBA(mat){
+  // Ensure 4 channels for ImageData
+  let rgba = new cv.Mat();
+  const type = mat.type();
+  if (type === cv.CV_8UC4) {
+    rgba = mat.clone();
+  } else if (type === cv.CV_8UC3) {
+    cv.cvtColor(mat, rgba, cv.COLOR_RGB2RGBA);
+  } else if (type === cv.CV_8UC1) {
+    cv.cvtColor(mat, rgba, cv.COLOR_GRAY2RGBA);
+  } else {
+    cv.cvtColor(mat, rgba, cv.COLOR_RGBA2RGBA);
+  }
+  return rgba;
+}
+
+function matToImageData(mat){
+  const rgba = toRGBA(mat);
+  const imgData = new ImageData(new Uint8ClampedArray(rgba.data), rgba.cols, rgba.rows);
+  rgba.delete();
+  return imgData;
+}
+
+// piccoli miglioramenti OCR: resize x2, unsharp, binarizzazione doppia
+function enhanceForOCR(gray){
+  const big = new cv.Mat();
+  cv.resize(gray, big, new cv.Size(0,0), 2.0, 2.0, cv.INTER_CUBIC);
+  const blur = new cv.Mat();
+  cv.GaussianBlur(big, blur, new cv.Size(3,3), 0);
+  const sharp = new cv.Mat();
+  // unsharp mask: sharp = 1.5*big - 0.5*blur
+  cv.addWeighted(big, 1.5, blur, -0.5, 0, sharp);
+  big.delete(); blur.delete();
+  return sharp;
+}
+
+async function ocrRankFromMat(mat){
+  // mat is expected grayscale or RGBA of the small corner; we'll binarize
+  const gray = new cv.Mat();
+  if(mat.type() === cv.CV_8UC1){ gray.create(mat.rows, mat.cols, cv.CV_8UC1); mat.copyTo(gray); }
+  else { cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY); }
+  const sharp = enhanceForOCR(gray);
+  const th = new cv.Mat();
+  cv.threshold(sharp, th, 0, 255, cv.THRESH_BINARY+cv.THRESH_OTSU);
+  let rank = await (await getWorker()).recognize(matToImageData(th)).then(r => mapTextToRank(r.data.text.trim()));
+  if(!rank){
+    // fallback: adaptive threshold
+    const th2 = new cv.Mat();
+    cv.adaptiveThreshold(sharp, th2, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
+    rank = await (await getWorker()).recognize(matToImageData(th2)).then(r => mapTextToRank(r.data.text.trim()));
+    th2.delete();
+  }
+  gray.delete(); sharp.delete(); th.delete();
+  return rank;
 }
 
 function warpQuadToRect(src, quad){
@@ -274,11 +330,6 @@ function approxPolyFromContour(cnt){
   const approx = new cv.Mat();
   cv.approxPolyDP(cnt, approx, 0.02*peri, true);
   return approx;
-}
-
-function matToImageData(mat){
-  const img = new ImageData(new Uint8ClampedArray(mat.data), mat.cols, mat.rows);
-  return img;
 }
 
 async function analyze(){
@@ -326,10 +377,7 @@ async function analyze(){
     const upright = warpQuadToRect(src, quad);
     const cx = 0, cy = 0, cw = Math.floor(upright.cols*0.30), ch = Math.floor(upright.rows*0.28);
     const roi = upright.roi(new cv.Rect(cx, cy, cw, ch));
-    const roiGray = new cv.Mat(); cv.cvtColor(roi, roiGray, cv.COLOR_RGBA2GRAY);
-    const roiTh = new cv.Mat(); cv.threshold(roiGray, roiTh, 0, 255, cv.THRESH_BINARY+cv.THRESH_OTSU);
-    const rank = await ocrRank(matToImageData(roiTh));
-
+    const rank = await ocrRankFromMat(roi);
     const orientation = estimateOrientation(rect);
     results.push({
       x: Math.min(quad[0].x, quad[1].x, quad[2].x, quad[3].x),
@@ -340,7 +388,7 @@ async function analyze(){
       orientation,
     });
 
-    roi.delete(); roiGray.delete(); roiTh.delete(); upright.delete();
+    roi.delete(); upright.delete();
     setStatus(`Analisi carte… ${idx+1}/${boxes.length}`); setProg(25 + Math.round((idx+1)/boxes.length*70));
   }
 
@@ -360,6 +408,8 @@ async function analyze(){
   setStatus('Completato'); setProg(100);
 
   src.delete(); gray.delete(); blur.delete(); edges.delete(); contours.delete(); hierarchy.delete();
+
+  if(tessWorker){ try { await tessWorker.terminate(); } catch(e){} tessWorker = null; }
 }
 
 document.getElementById('analyzeBtn').addEventListener('click', ()=>{
@@ -371,4 +421,7 @@ recalc();
 setStatus('Pronto');
 </script>
 </body>
-</html>
+</html>"""
+with open("/mnt/data/index.html", "w", encoding="utf-8") as f:
+    f.write(html)
+print("Creato:", "/mnt/data/index.html")
